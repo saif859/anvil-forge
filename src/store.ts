@@ -62,7 +62,7 @@ export interface Issue {
   closedAt: number | null;
   /** Bumped on every change: the key of the cached REST rendering. */
   rev: number;
-  cache: { rev: number; body: string; etag: string } | null;
+  cache: { rev: number; origin: string; body: string; etag: string } | null;
 }
 
 export interface PullFile {

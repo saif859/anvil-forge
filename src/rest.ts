@@ -738,9 +738,9 @@ export class RestApi {
 
   issueReply(request: Request, view: View, issue: Issue): Reply {
     let cache = issue.cache;
-    if (cache === null || cache.rev !== issue.rev || !cache.body.includes(view.origin)) {
+    if (cache === null || cache.rev !== issue.rev || cache.origin !== view.origin) {
       const body = JSON.stringify(issueJson(view, issue));
-      cache = { rev: issue.rev, body, etag: `"${createHash('sha1').update(body).digest('hex')}"` };
+      cache = { rev: issue.rev, origin: view.origin, body, etag: `"${createHash('sha1').update(body).digest('hex')}"` };
       issue.cache = cache;
     }
     return this.cached(request, cache.body, cache.etag);
@@ -758,7 +758,7 @@ export class RestApi {
         const labels = body.labels === undefined || body.labels === null ? [] : this.labelsFor(repo, body.labels);
         const issue = this.store.createIssue(repo, { title: String(title), body: nullableString(body, 'body') ?? null, labels });
         const text = JSON.stringify(issueJson(view, issue));
-        issue.cache = { rev: issue.rev, body: text, etag: `"${createHash('sha1').update(text).digest('hex')}"` };
+        issue.cache = { rev: issue.rev, origin: view.origin, body: text, etag: `"${createHash('sha1').update(text).digest('hex')}"` };
         return { status: 201, head: this.head(`location: ${api(view, `/repos/${repo.owner}/${repo.name}/issues/${issue.number}`)}\r\n`), body: text };
       }
       if (method === 'GET') {
