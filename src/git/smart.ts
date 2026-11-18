@@ -31,7 +31,6 @@ const V2_ADVERTISEMENT = Buffer.from(
     pktText(`${AGENT}\n`),
     pktText('ls-refs=unborn\n'),
     pktText('fetch=shallow\n'),
-    pktText('server-option\n'),
     pktText('object-format=sha1\n'),
     '0000',
   ].join(''),
