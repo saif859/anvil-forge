@@ -4,7 +4,8 @@
 
 import { createHash } from 'node:crypto';
 import { deflateSync, inflateSync } from 'node:zlib';
-import { CODE_TYPE, TYPE_CODE, hashObject, type GitObject, type ObjectType } from './objects.ts';
+import { CODE_TYPE, TYPE_CODE, hashObject, sha1Hex, type GitObject, type ObjectType } from './objects.ts';
+import { inflateZlib } from './inflate.ts';
 
 export interface UnpackedObject {
   readonly oid: string;
@@ -12,7 +13,15 @@ export interface UnpackedObject {
   readonly data: Buffer;
 }
 
-function inflateAt(pack: Buffer, offset: number, end: number): { data: Buffer; next: number } {
+/** Objects up to this size inflate in TypeScript; larger ones go to node:zlib. */
+const SMALL_OBJECT = 16 * 1024;
+
+function inflateAt(pack: Buffer, offset: number, end: number, size: number): { data: Buffer; next: number } {
+  if (size <= SMALL_OBJECT) {
+    const inflated = inflateZlib(pack, offset, size);
+    if (inflated.next > end) throw new Error(`zlib stream at ${offset} runs into the pack trailer`);
+    return inflated;
+  }
   const result = inflateSync(pack.subarray(offset, end), { info: true }) as unknown as { buffer: Buffer; engine: { bytesWritten: number } };
   const used = result.engine.bytesWritten;
   if (!(used > 0)) throw new Error(`zlib stream at ${offset} consumed nothing`);
@@ -77,7 +86,7 @@ export function readPack(pack: Buffer, lookup: (oid: string) => GitObject | unde
   const count = pack.readUInt32BE(8);
   const end = pack.length - 20;
   const trailer = pack.toString('hex', end);
-  if (createHash('sha1').update(pack.subarray(0, end)).digest('hex') !== trailer) throw new Error('pack checksum mismatch');
+  if (sha1Hex(pack.subarray(0, end)) !== trailer) throw new Error('pack checksum mismatch');
 
   interface Entry {
     offset: number;
@@ -117,7 +126,7 @@ export function readPack(pack: Buffer, lookup: (oid: string) => GitObject | unde
     } else if (CODE_TYPE[code] === undefined) {
       throw new Error(`pack entry ${index} has type ${code}`);
     }
-    const inflated = inflateAt(pack, at, end);
+    const inflated = inflateAt(pack, at, end, size);
     if (inflated.data.length !== size) throw new Error(`pack entry ${index} inflated to ${inflated.data.length}, not ${size}`);
     at = inflated.next;
     const entry: Entry = { offset, code, data: inflated.data, baseOffset, baseOid, resolved: null };

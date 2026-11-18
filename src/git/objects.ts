@@ -1,6 +1,6 @@
 // The git object model: SHA-1 ids exactly as git computes them, and the commit, tree and tag formats.
 
-import { createHash } from 'node:crypto';
+import * as crypto from 'node:crypto';
 
 export type ObjectType = 'commit' | 'tree' | 'blob' | 'tag';
 
@@ -15,8 +15,19 @@ export const OID_RE = /^[0-9a-f]{40}$/;
 export const TYPE_CODE: Readonly<Record<ObjectType, number>> = { commit: 1, tree: 2, blob: 3, tag: 4 };
 export const CODE_TYPE: readonly (ObjectType | undefined)[] = [undefined, 'commit', 'tree', 'blob', 'tag'];
 
+// One-shot hashing (crypto.hash, Node 21.7+) skips building a Hash object per git object.
+const oneShot = (crypto as { hash?: (algorithm: string, data: Buffer, encoding: 'hex') => string }).hash;
+
+export function sha1Hex(data: Buffer): string {
+  return oneShot !== undefined ? oneShot('sha1', data, 'hex') : crypto.createHash('sha1').update(data).digest('hex');
+}
+
 export function hashObject(type: ObjectType, data: Buffer): string {
-  return createHash('sha1').update(`${type} ${data.length}\0`, 'latin1').update(data).digest('hex');
+  const header = `${type} ${data.length}\0`;
+  const whole = Buffer.allocUnsafe(header.length + data.length);
+  whole.write(header, 0, 'latin1');
+  data.copy(whole, header.length);
+  return sha1Hex(whole);
 }
 
 export interface TreeEntry {
