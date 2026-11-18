@@ -34,6 +34,8 @@ const REASONS: Record<number, string> = {
 };
 
 const MAX_HEAD_BYTES = 64 * 1024;
+/** Replies up to this size are joined into one buffer before the write. */
+const SMALL_REPLY = 64 * 1024;
 const MAX_BODY_BYTES = 512 * 1024 * 1024;
 const HEAD_END = Buffer.from('\r\n\r\n', 'latin1');
 const EMPTY = Buffer.alloc(0);
@@ -112,16 +114,21 @@ function serveSocket(socket: Socket, handler: Handler): void {
       socket.write(head, 'latin1');
     } else if (typeof body === 'string') {
       socket.write(head + body, 'utf8');
-    } else if (Buffer.isBuffer(body)) {
-      socket.cork();
-      socket.write(head, 'latin1');
-      socket.write(body);
-      process.nextTick(() => socket.uncork());
+    } else if (length <= SMALL_REPLY) {
+      // One buffer, one write: a small binary answer never costs a writev of many parts.
+      const out = Buffer.allocUnsafe(head.length + length);
+      out.write(head, 0, 'latin1');
+      let at = head.length;
+      for (const part of Buffer.isBuffer(body) ? [body] : (body as readonly Buffer[])) {
+        part.copy(out, at);
+        at += part.length;
+      }
+      socket.write(out);
     } else {
       socket.cork();
       socket.write(head, 'latin1');
-      for (const part of body as readonly Buffer[]) socket.write(part);
-      process.nextTick(() => socket.uncork());
+      for (const part of Buffer.isBuffer(body) ? [body] : (body as readonly Buffer[])) socket.write(part);
+      socket.uncork();
     }
     if (!keepAlive) {
       closing = true;
@@ -178,9 +185,10 @@ function serveSocket(socket: Socket, handler: Handler): void {
           if (buffered.length > MAX_HEAD_BYTES) fail(431, 'Request header fields too large');
           return;
         }
-        const lines = buffered.toString('latin1', 0, end).split('\r\n');
+        const text = buffered.toString('latin1', 0, end);
         buffered = buffered.subarray(end + 4);
-        const requestLine = lines[0] ?? '';
+        const lineEnd = text.indexOf('\r\n');
+        const requestLine = lineEnd < 0 ? text : text.slice(0, lineEnd);
         const firstSpace = requestLine.indexOf(' ');
         const lastSpace = requestLine.lastIndexOf(' ');
         if (firstSpace <= 0 || lastSpace <= firstSpace) {
@@ -191,11 +199,23 @@ function serveSocket(socket: Socket, handler: Handler): void {
         const target = requestLine.slice(firstSpace + 1, lastSpace);
         const version = requestLine.slice(lastSpace + 1);
         const headers: Record<string, string> = Object.create(null) as Record<string, string>;
-        for (let i = 1; i < lines.length; i += 1) {
-          const line = lines[i] as string;
-          const colon = line.indexOf(':');
-          if (colon <= 0) continue;
-          headers[line.slice(0, colon).trim().toLowerCase()] = line.slice(colon + 1).trim();
+        // Scan the header block in place: one indexOf per line, no array of lines, and a name is
+        // lowercased or a value trimmed only when it needs it.
+        let at = lineEnd < 0 ? text.length : lineEnd + 2;
+        while (at < text.length) {
+          let next = text.indexOf('\r\n', at);
+          if (next < 0) next = text.length;
+          const colon = text.indexOf(':', at);
+          if (colon > at && colon < next) {
+            let name = text.slice(at, colon);
+            if (/[A-Z\s]/.test(name)) name = name.trim().toLowerCase();
+            let from = colon + 1;
+            while (from < next && (text.charCodeAt(from) === 32 || text.charCodeAt(from) === 9)) from += 1;
+            let to = next;
+            while (to > from && (text.charCodeAt(to - 1) === 32 || text.charCodeAt(to - 1) === 9)) to -= 1;
+            headers[name] = text.slice(from, to);
+          }
+          at = next + 2;
         }
         const question = target.indexOf('?');
         const rawPath = question < 0 ? target : target.slice(0, question);

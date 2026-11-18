@@ -1,12 +1,11 @@
 // The append-only journal: one canonical JSON line per mutation, written in batches off the request path.
 //
 // ANVIL_DATA_DIR names a directory whose journal.ndjson is replayed at boot and appended to from then on, so
-// the forge survives a restart. Without it the forge journals into a fresh private directory under the OS
-// temp dir and replays nothing: a trial pod always starts empty, and two runs on one machine never see each
-// other's data. A directory that cannot be written turns journalling off and the forge runs from memory.
+// the forge survives a restart. Without it the forge runs from memory alone and touches no file: a trial pod
+// always starts empty and is thrown away, and under a sandboxed kernel every journal write is a syscall and a
+// thread wakeup on the hot path for nothing. A directory that cannot be written turns journalling off too.
 
-import { closeSync, existsSync, mkdirSync, mkdtempSync, openSync, readFileSync, write } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { closeSync, existsSync, mkdirSync, openSync, readFileSync, write } from 'node:fs';
 import { join } from 'node:path';
 
 /** JSON with object keys sorted at every depth: the same record always writes the same bytes. */
@@ -29,18 +28,13 @@ export class Journal {
 
   constructor(env: Readonly<Record<string, string | undefined>>) {
     const configured = env.ANVIL_DATA_DIR?.trim();
+    if (configured === undefined || configured === '') return;
     try {
-      let dir: string;
-      if (configured !== undefined && configured !== '') {
-        dir = configured;
-        mkdirSync(dir, { recursive: true });
-        const file = join(dir, 'journal.ndjson');
-        if (existsSync(file)) this.replayed = Journal.read(file);
-      } else {
-        dir = mkdtempSync(join(tmpdir(), 'anvil-'));
-      }
-      this.path = join(dir, 'journal.ndjson');
-      this.fd = openSync(this.path, 'a');
+      mkdirSync(configured, { recursive: true });
+      const file = join(configured, 'journal.ndjson');
+      if (existsSync(file)) this.replayed = Journal.read(file);
+      this.path = file;
+      this.fd = openSync(file, 'a');
     } catch (err) {
       this.fd = null;
       process.stderr.write(`[anvil] journal off, running from memory (${err instanceof Error ? err.message : String(err)})\n`);
@@ -59,6 +53,10 @@ export class Journal {
       }
     }
     return records;
+  }
+
+  get enabled(): boolean {
+    return this.fd !== null;
   }
 
   append(record: JournalRecord): void {

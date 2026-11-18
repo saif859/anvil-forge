@@ -62,7 +62,7 @@ export interface Issue {
   closedAt: number | null;
   /** Bumped on every change: the key of the cached REST rendering. */
   rev: number;
-  cache: { rev: number; origin: string; body: string; etag: string } | null;
+  cache: { rev: number; origin: string; body: string; etag: string | null } | null;
 }
 
 export interface PullFile {
@@ -171,8 +171,13 @@ export class Store {
     return this.clock;
   }
 
+  /** Whether mutations are journalled (ANVIL_DATA_DIR set): when not, no record is even built. */
+  get logging(): boolean {
+    return this.journal.enabled && !this.replaying;
+  }
+
   log(record: JournalRecord): void {
-    if (!this.replaying) this.journal.append({ ...record, at: this.clock });
+    if (this.logging) this.journal.append({ ...record, at: this.clock });
   }
 
   // ------------------------------------------------------------ objects
@@ -181,7 +186,7 @@ export class Store {
     const oid = known ?? hashObject(type, data);
     if (!this.objects.has(oid)) {
       this.objects.set(oid, { type, data });
-      this.log({ e: 'object', type, data: data.toString('base64') });
+      if (this.logging) this.log({ e: 'object', type, data: data.toString('base64') });
     }
     return oid;
   }
@@ -480,6 +485,7 @@ export class Store {
   }
 
   logRepo(repo: Repo): void {
+    if (!this.logging) return;
     this.log({
       e: 'repo',
       id: repo.id,
@@ -555,7 +561,7 @@ export class Store {
     }
     repo.version += 1;
     repo.pushedAt = this.tick();
-    this.log({ e: 'refs', repo: repo.id, set: updates.map(([ref, oid]) => [ref, oid]), defaultBranch: repo.defaultBranch });
+    if (this.logging) this.log({ e: 'refs', repo: repo.id, set: updates.map(([ref, oid]) => [ref, oid]), defaultBranch: repo.defaultBranch });
   }
 
   /** A branch name, tag name, full ref or commit id, resolved to a commit id. */
@@ -658,6 +664,7 @@ export class Store {
   }
 
   logIssue(issue: Issue): void {
+    if (!this.logging) return;
     this.log({
       e: 'issue',
       repo: issue.repo.id,
@@ -755,6 +762,7 @@ export class Store {
   }
 
   logPull(pull: Pull): void {
+    if (!this.logging) return;
     this.log({
       e: 'pull',
       repo: pull.repo.id,

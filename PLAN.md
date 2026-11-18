@@ -89,10 +89,12 @@ bad JSON: HTTP 400 + -32700; no token: 401. Answers as `application/json` (SSE w
 - **Domain records:** repositories by `owner/name` and by id; per repository an issue array indexed by
   number (O(1) reads), an open-issue index for list queries, labels, comments, pulls. Issue and pull numbers
   share one per-repo counter, as on GitHub.
-- **Journal:** one append-only file (`$TMPDIR/anvil/journal.ndjson`), one canonical JSON line per mutation
+- **Journal:** one append-only file (`$ANVIL_DATA_DIR/journal.ndjson`), one canonical JSON line per mutation
   (keys sorted, objects by oid), written in one batched append per event-loop turn so a request never
-  waits on the disk. At boot an existing journal is replayed to rebuild the store; a fresh trial starts
-  empty. If the directory is not writable the forge runs in memory and says so on stderr.
+  waits on the disk. At boot an existing journal is replayed to rebuild the store. Without
+  `ANVIL_DATA_DIR` the forge runs from memory and touches no file. (Revised after the first production
+  run: journalling into a throwaway temp directory cost a file write and a threadpool wakeup per push and
+  per issue write under the sandbox's kernel, for data a fresh trial pod never reads back.)
 
 ## Determinism
 
