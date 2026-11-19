@@ -75,6 +75,9 @@ export function applyDelta(base: Buffer, delta: Buffer): Buffer {
   return out;
 }
 
+/** Thrown inside readPack for a REF_DELTA whose base comes later; made once, as a sentinel never shown. */
+const DEFERRED: unique symbol = Symbol('base not resolved yet');
+
 /**
  * Parse a pack. `lookup` resolves a REF_DELTA base the pack leaves out (a thin pack). Each object's id is
  * computed here from its resolved bytes.
@@ -136,7 +139,6 @@ export function readPack(pack: Buffer, lookup: (oid: string) => GitObject | unde
   if (at !== end) throw new Error('pack has bytes after its last entry');
 
   const byOid = new Map<string, UnpackedObject>();
-  const deferred = new Error('base not resolved yet');
   const resolve = (entry: Entry, depth: number): UnpackedObject => {
     if (entry.resolved !== null) return entry.resolved;
     if (depth > 10_000) throw new Error('delta chain too deep');
@@ -150,7 +152,7 @@ export function readPack(pack: Buffer, lookup: (oid: string) => GitObject | unde
       data = applyDelta(resolvedBase.data, entry.data);
     } else if (entry.code === 7) {
       const base: GitObject | undefined = byOid.get(entry.baseOid) ?? lookup(entry.baseOid);
-      if (base === undefined) throw deferred;
+      if (base === undefined) throw DEFERRED;
       type = base.type;
       data = applyDelta(base.data, entry.data);
     } else {
@@ -172,7 +174,7 @@ export function readPack(pack: Buffer, lookup: (oid: string) => GitObject | unde
       try {
         resolve(entry, 0);
       } catch (err) {
-        if (err !== deferred) throw err;
+        if (err !== DEFERRED) throw err;
       }
     }
     open = open.filter((entry) => entry.resolved === null);

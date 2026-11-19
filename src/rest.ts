@@ -97,9 +97,14 @@ export class RestApi {
     return 'bad';
   }
 
-  head(extra = ''): string {
+  /** The next X-GitHub-Request-Id's 8 hex digits: one per answer, a cached one included (http.ts). */
+  nextRequestId(): string {
     this.requestId += 1;
-    return `${JSON_TYPE}x-github-request-id: ANVIL:${this.requestId.toString(16).toUpperCase().padStart(8, '0')}\r\nx-github-api-version-selected: 2022-11-28\r\n${extra}`;
+    return this.requestId.toString(16).toUpperCase().padStart(8, '0');
+  }
+
+  head(extra = ''): string {
+    return `${JSON_TYPE}x-github-request-id: ANVIL:${this.nextRequestId()}\r\nx-github-api-version-selected: 2022-11-28\r\n${extra}`;
   }
 
   json(status: number, body: unknown, extra = ''): Reply {

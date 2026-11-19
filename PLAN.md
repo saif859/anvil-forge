@@ -110,9 +110,9 @@ bad JSON: HTTP 400 + -32700; no token: 401. Answers as `application/json` (SSE w
 
 | Workload | What one op costs the forge | Plan | Server target |
 | --- | --- | --- | --- |
-| push, 200 sequential | GET receive-pack info/refs + POST receive-pack with a 3-object pack | advertisement bytes cached per ref version; inflate 3 objects; fast-forward is a one-step parent check; no repo walk | < 150 us |
+| push, 200 sequential | GET receive-pack info/refs + POST receive-pack with a 3-object pack | advertisement bytes cached per ref version; inflate 3 objects with a table-driven TypeScript inflater (one lookup per Huffman code, tables sized to the code); fast-forward is a one-step parent check; no repo walk | < 150 us |
 | clone, 50 concurrent depth 1 | GET v2 info/refs + ls-refs + fetch deepen 1 | constant advertisement; ls-refs and the depth-1 fetch response cached per (repo version, request bytes), so after the first clone each answer is one socket write | < 50 us |
-| read, 2,000 sequential | GET one issue | rendered issue bytes cached per issue revision; route matched without regex backtracking | < 20 us |
+| read, 2,000 sequential | GET one issue | the whole answer cached by request head (emptied by any request that may write), so a repeat skips parsing and routing; rendered issue bytes cached per issue revision behind it | < 20 us |
 | write, 200 sequential | POST one issue | O(1) append, render once, batched journal append | < 60 us |
 
 The suite's client (undici fetch in a gVisor pod) dominates every round trip, so the forge's job is to add as

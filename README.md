@@ -32,13 +32,15 @@ its journal is replayed at boot.
 
 ## How it is built
 
-- `src/http.ts`: HTTP/1.1 straight on `node:net`. Keep-alive, pipelining in order, one corked write a reply.
+- `src/http.ts`: HTTP/1.1 straight on `node:net`. Keep-alive, pipelining in order, one corked write a reply,
+  and a cache of whole GET answers keyed by the exact request head: emptied before any request that may
+  change the store, so a repeated read of something unchanged skips parsing, routing and rendering.
 - `src/store.ts`: one store. Content-addressed git objects, refs per repository with a version counter that
   keys every derived cache, and the GitHub records. A logical clock (one tick per mutation, from the
   scenario epoch) stamps everything, so the same requests always build the same commit ids and JSON.
 - `src/journal.ts`: an append-only, canonical-JSON journal written in batches off the request path.
 - `src/git/`: the object model, packfiles (read with OFS/REF deltas and thin bases; write with self-verified
-  OFS deltas) and the smart-HTTP protocol. Fetch answers are memoised per (ref version, request bytes), so
+  OFS deltas; small objects inflate in a table-driven TypeScript inflater) and the smart-HTTP protocol. Fetch answers are memoised per (ref version, request bytes), so
   fifty identical shallow clones build one pack.
 - `src/graphql/`: a GraphQL lexer and parser, and an engine that validates a document against a schema
   written in SDL before running it. Introspection answers from the same definitions the executor uses.

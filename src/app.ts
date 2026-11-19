@@ -61,5 +61,5 @@ export function createForge(env: Readonly<Record<string, string | undefined>>): 
     return notFound();
   };
 
-  return { server: createHttpServer(handler), store };
+  return { server: createHttpServer(handler, { nextRequestId: () => rest.nextRequestId() }), store };
 }
